@@ -24,7 +24,10 @@ enum e_instr_type {two_reg, single_reg, return_and_test, K8_imm_single_reg};
 ARMClass::ARMClass() {
   loaded_prg_size = 0;
   prg_memory_size = PRG_MEM_SIZE * 4;
+  data_memory_size = DATA_MEM_SIZE;
   prg_memory = new uint8_t[PRG_MEM_SIZE * 4];
+  data_memory = new uint8_t[DATA_MEM_SIZE];
+  memset(regs.REGS, 0, sizeof(regs));
   regs.SP = ((PRG_MEM_SIZE - 1) * 4);
   regs.PC = 0x00000004;
   thumb_mode = false;
@@ -37,6 +40,7 @@ ARMClass::ARMClass() {
 
 ARMClass::ARMClass(const ARMClass& orig) {
   prg_memory = orig.prg_memory;
+  data_memory = orig.data_memory;
 }
 
 int ARMClass::GetBinFile(std::string FileName)
@@ -78,26 +82,28 @@ int ARMClass::PrintMnem()
   PPS = (P_ARM_PRG_STRUCT)&prg_memory[DISASM_ADDR];
   
   printf("%04x\t:", DISASM_ADDR);
-  sprintf(CODE_BUFFER, "%4x", PPS->S16L);
-  
+  sprintf(CODE_BUFFER, "%04x", PPS->S16L);
+  /* -------------------------- 4 bit -----------------------------------*/
   switch (PPS->S16L & OP4BIT_MASK)
   {
     case BCOND_TEST: BranchCond(PPS->S16L); break; 
     default: 
-    
+      /* -----------------------8 bit ----------------------------------- */
     switch (PPS->S16L & OP8BIT_MASK)
     {
       case MOVRdRm_TEST: MovRdRm(PPS->S16L); break;
       
       default: 
+    /* ---------------------BL target mask ---------------------------------- */
         switch (PPS->S32 & BLTARGET_MASK)
         {
           case  BLTARGET_TEST: 
             BlTarget(PPS); retval = 4; break;
           case BLXTARGET_TEST:
-            retval = 3;
+            retval = 4;
           break;
           default: 
+      /* ------------------------ 10 bit ---------------------------------- */
         switch (PPS->S16L & OP10BIT_MASK)
         {
           case   ANDRdRm_TEST:ANDRdRm(PPS->S16L);break;
@@ -115,19 +121,38 @@ int ARMClass::PrintMnem()
           case   ORRRdRm_TEST:ORRRdRm(PPS->S16L);break;
           case   MULRdRm_TEST:MULRdRm(PPS->S16L);break;
           case   BICRmRd_TEST:BICRmRd(PPS->S16L);break;
-          case   MVNRdRm_TEST:MVNRdRm(PPS->S16L);break;   
+          case   MVNRdRm_TEST:MVNRdRm(PPS->S16L);break;  
+          case   MOVSRdRm_TEST:MOVSRdRm(PPS->S16L);break;
           default:
-            switch (PPS->S16L & CB_MASK)
-            {
-              case  CBZ_TEST:   CBZ(PPS->S16L);break;
-              case  CBNZ_TEST:  CBNZ(PPS->S16L);break;
-              default:
+      /* -----------------------------CB MASK --------------------------------- */
+        switch (PPS->S16L & CB_MASK)
+        {
+          case  CBZ_TEST:   CBZ(PPS->S16L);break;
+          case  CBNZ_TEST:  CBNZ(PPS->S16L);break;
+          default:
+      /* ---------------------------5 bit ---------------------------------- */
+        switch (PPS->S16L & OP5BIT_MASK)    
+        {
+          case MOVSRDIMM_TEST: MOVRsImm(PPS->S16L); break;
+          case ASRSRdRmImm_TEST: ASRSRdRmImm(PPS->S16L); break;
+          case STRHRtRnImm_TEST: STRHRtRnImm(PPS->S16L); break;
+          case  LDRBRtRnImm_TEST: LDRBRtRnImm(PPS->S16L); break;
+          case  STRBRtRnImm_TEST: STRBRtRnImm(PPS->S16L); break;
+          case  LDRHRtRnImm_TEST: LDRHRtRnImm(PPS->S16L); break;
+          default:
+      /* */      
+        switch (PPS->S32 & MOVWRdimm16_MASK)
+        {
+          case  MOVWRdimm16_TEST: MOVWRdimm16(PPS); retval = 4; break;
+          case  MOVTRdimm16_TEST: MOVTRdimm16(PPS); retval = 4; break;
+          default:
+            Undefinied(PPS->S16L); break;
+        }
+            
+        }
                 
-                
-                
-                
-                Undefinied(PPS->S16L); break;                
-            }
+                                
+        }
             
         }
         }
@@ -172,12 +197,12 @@ int ARMClass::GetCond(uint16_t data)
   return ((data >> 8) & 0x0F);
 }
 
-int ARMClass::GetReg(uint16_t data, int number)
+int ARMClass::GetReg(uint16_t data, int shifts)
 { uint16_t MASK = 0b0000000000000111;
   uint16_t result;
-  MASK <<= (number * 3);
+  MASK <<= shifts;
   result = data & MASK;
-  result >>= (number * 3);
+  result >>= shifts;
   return result;
 }
 
@@ -220,7 +245,7 @@ void ARMClass::SetVFlag(uint32_t data)
 void ARMClass::MovRdRm(uint16_t data)
 {
   int RD = GetReg(data, 0);
-  int RM = GetReg(data, 1);
+  int RM = GetReg(data, 3);
   regs.REGS[RD] = regs.REGS[RM];
   sprintf(HELP_BUFFER, "MOV Rd, Rm Rd = Rm Rd or Rm must be a *high register*");
   sprintf(MNEM_BUFFER, "MOV R%i, R%i", RD, RM);
@@ -237,7 +262,7 @@ void ARMClass::BranchCond(uint16_t data)
 void  ARMClass::ANDRdRm(uint16_t data)
 {
   int RD = GetReg(data, 0);
-  int RM = GetReg(data, 1);
+  int RM = GetReg(data, 3);
   regs.REGS[RD] &= regs.REGS[RM];
   SetZFlag(regs.REGS[RD]);
   SetNFlag(regs.REGS[RD]);
@@ -247,7 +272,7 @@ void  ARMClass::ANDRdRm(uint16_t data)
 void  ARMClass::EORRdRm(uint16_t data)
 {
   int RD = GetReg(data, 0);
-  int RM = GetReg(data, 1);
+  int RM = GetReg(data, 3);
   regs.REGS[RD] ^= regs.REGS[RM];
   SetZFlag(regs.REGS[RD]);
   SetNFlag(regs.REGS[RD]);
@@ -257,7 +282,7 @@ void  ARMClass::EORRdRm(uint16_t data)
 void  ARMClass::LSLRdRs(uint16_t data)
 { uint64_t TR;
   int RD = GetReg(data, 0);
-  int RS = GetReg(data, 1);
+  int RS = GetReg(data, 3);
   TR = regs.REGS[RD];
   TR <<= regs.REGS[RS]; 
   SetCFlag(TR);
@@ -372,10 +397,128 @@ if ((pdata->S16H & OP5BIT_MASK) == BLTARGET_TEST_L)
 
 }
 
+ARM_PRG_STRUCT ARMClass::Calcdimm16(ARM_PRG_STRUCT PS)
+{
+  PS.S8LH = (PS.S8LH & 0b01110000) >> 4;
+  PS.S8HL = (PS.S8HL << 4) & 0xF0;
+  PS.S8LH |= PS.S8HL;
+  PS.S8HH = (PS.S8HH << 5) & 0x80;
+  PS.S8LH |= PS.S8HH;
+  return PS;
+}
+
+void ARMClass::MOVWRdimm16(P_ARM_PRG_STRUCT pdata)
+{ int RD; ARM_PRG_STRUCT PS; char b[40];
+  RD = GetReg(pdata->S16H, 8);
+  PS = *pdata;
+  PS = Calcdimm16(PS);
+  sprintf(b, " %04x", pdata->S16H);
+  strcat(CODE_BUFFER, b);
+  regs.REGST[RD].S16H = PS.S16H;
+  sprintf(HELP_BUFFER, "MOVW<c> <Rd>,#%04x", PS.S16H);
+  sprintf(MNEM_BUFFER, "MOVW R%i, #%4x", RD, PS.S16H);    
+}
+
+void ARMClass::MOVTRdimm16(P_ARM_PRG_STRUCT pdata)
+{ int RD; ARM_PRG_STRUCT PS; char b[40];
+  RD = GetReg(pdata->S16H, 8);
+  PS = *pdata;
+  PS = Calcdimm16(PS);
+  sprintf(b, " %04x", pdata->S16H);
+  strcat(CODE_BUFFER, b);
+  regs.REGST[RD].S16L = PS.S16H;
+  
+  sprintf(HELP_BUFFER, "MOVT<c> <Rd>,#%04x", PS.S16H);
+  sprintf(MNEM_BUFFER, "MOVT R%i, #%4x", RD, PS.S16H);    
+}
+
+void ARMClass::MOVRsImm(uint16_t data)
+{
+  int RS = GetReg(data, 8);
+  regs.REGS[RS] = (uint8_t)data;
+  SetZFlag(regs.REGS[RS]);
+  SetCFlag(regs.REGS[RS]);
+  sprintf(HELP_BUFFER, "MOVS <Rd>, D%0d", (uint8_t)data);
+  sprintf(MNEM_BUFFER, "MOVS R%i, #0x%02x\t", RS, (uint8_t)data); //COND4[condcode].c_str(), target_addr);
+}
 
 
+void ARMClass::MOVSRdRm(uint16_t data)
+{
+  int RD = GetReg(data, 0);
+  int RM = GetReg(data, 3);
+  regs.REGS[RD] = regs.REGS[RM];
+  SetZFlag(regs.REGS[RD]);
+  SetNFlag(regs.REGS[RD]);
+  sprintf(HELP_BUFFER, "Rd:= Rd AND Rs");
+  sprintf(MNEM_BUFFER, "MOVS R%i, R%i", RD, RM);  
+}
+
+void ARMClass::ASRSRdRmImm(uint16_t data)
+{ int shift;
+  int RD = GetReg(data, 0);
+  int RM = GetReg(data, 3);
+  shift = Get5bitShift(data);
+  regs.REGS[RD] = regs.REGS[RM] >> shift;
+  SetZFlag(regs.REGS[RD]);
+  SetNFlag(regs.REGS[RD]);
+  sprintf(HELP_BUFFER, "ASRS <Rd>,<Rm>,#<imm5>");
+  sprintf(MNEM_BUFFER, "ASRS R%i, R%i, #%02i\t", RD, RM, shift);  
+}
+
+void  ARMClass::STRHRtRnImm(uint16_t data)
+{ int shift; uint32_t offset;
+  int RT = GetReg(data, 0);
+  int RN = GetReg(data, 3);
+  shift = Get5bitOffset(data);
+  offset = regs.REGS[RN] + shift;
+  data_memory_offset = (offset & 0xFFFF0000) >> 16;
+  data_memory[offset & 0x0000FFFF] = regs.REGS[RT];
+  sprintf(HELP_BUFFER, "STRH<%08x>,[<%08x>,[%08x]", regs.REGS[RT], regs.REGS[RN], offset);
+  sprintf(MNEM_BUFFER, "STRH R%i, [R%i, #%02i]\t", RT, RN, shift); 
+}
+
+void  ARMClass::STRBRtRnImm(uint16_t data)
+{ int shift; uint32_t offset;
+  int RT = GetReg(data, 0);
+  int RN = GetReg(data, 3);
+  shift = Get5bitOffset(data);
+  offset = regs.REGS[RN] + shift;
+  data_memory_offset = (offset & 0xFFFF0000) >> 16;
+  data_memory[offset & 0x0000FFFF] = regs.REGS[RT];
+  sprintf(HELP_BUFFER, "STRH<%08x>,[<%08x>,[%08x]", regs.REGS[RT], regs.REGS[RN], offset);
+  sprintf(MNEM_BUFFER, "STRH R%i, [R%i, #%02i]\t", RT, RN, shift); 
+}
+
+void  ARMClass::LDRBRtRnImm(uint16_t data)
+{
+  
+}
+
+void  ARMClass::LDRHRtRnImm(uint16_t data)
+{
+  
+}
+
+int ARMClass::Get5bitShift(uint16_t data)
+{
+  return (data & 0b11111000000) >> 6;
+}
+
+int ARMClass::Get5bitOffset(uint16_t data)
+{ int result;
+  result = (data & 0b11111000000) >> 6;
+  if (result & 0b10000) result *= -2;
+  else result *= 2;
+  return result;
+}
+
+bool ARMClass::IsDataBound(uint32_t address)
+{
+}
 
 ARMClass::~ARMClass() {
   delete prg_memory;
+  delete data_memory;
 }
 

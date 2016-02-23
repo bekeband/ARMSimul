@@ -13,6 +13,7 @@
 using namespace std;
 
 #define   PRG_MEM_SIZE      20000
+#define   DATA_MEM_SIZE     0xFFFF
 #define   PRG_ORIGIN        0x0000000000000000
 
 #define   OP4BIT_MASK       0b1111000000000000
@@ -24,11 +25,17 @@ using namespace std;
 #define   OP10BIT_MASK      0b1111111111000000
 #define   OP13BIT_MASK      0b1111000000000111
 #define   CB_MASK           0b1111110100000000
-//#define   BLTARGET_MASK     0xF800D000
+
 #define   BLTARGET_MASK     0xD000F800
+#define   MOVWRdimm16_MASK  0x8000FBF0
+
+#define   MOVSRDIMM_TEST    0b0010000000000000
 
 #define   BLTARGET_TEST     0xD000F000
 #define   BLXTARGET_TEST    0xC000F000
+
+#define   MOVWRdimm16_TEST  0x0000F240
+#define   MOVTRdimm16_TEST  0x0000F2C0
 
 #define   BCOND_TEST        0b1101000000000000
 #define   SWI_TEST          0b1101000000000000
@@ -38,6 +45,14 @@ using namespace std;
 #define   CBZ_TEST          0b1011000100000000
 #define   CBNZ_TEST         0b1011100100000000
 
+#define   STRHRtRnImm_TEST  0b1000000000000000
+#define   ASRSRdRmImm_TEST  0b0001000000000000
+#define   LDRBRtRnImm_TEST  0b0111100000000000
+#define   LDRHRtRnImm_TEST  0b1000100000000000
+#define   STRBRtRnImm_TEST  0b0111000000000000
+#define   STRHRtRnImm_TEST  0b1000000000000000
+
+#define   MOVSRdRm_TEST     0x0000
 #define   ANDRdRm_TEST      0b0100000000000000
 #define   EORRdRm_TEST      0b0100000001000000
 #define   LSLRdRs_TEST      0b0100000010000000
@@ -55,6 +70,7 @@ using namespace std;
 #define   BICRmRd_TEST      0b0100001110000000
 #define   MVNRdRm_TEST      0b0100001111000000
 
+
 #define   MOV_REG_IMM_MASK  0b1111000000000000
 #define   MOV_REG_IMM_TEST  0b0011000000000000
 
@@ -71,10 +87,10 @@ struct  ARM_PRG_STRUCT{
     uint16_t  S16H;
     };
     struct {
-    uint8_t   S8LL;
-    uint8_t   S8LH;
     uint8_t   S8HL;
     uint8_t   S8HH;
+    uint8_t   S8LL;
+    uint8_t   S8LH;
     };
   };
 } ;
@@ -111,6 +127,9 @@ struct {
 };
 struct {
   uint32_t  REGS[16];
+};
+struct {
+  ARM_PRG_STRUCT REGST[16];
 };
 };
 
@@ -164,7 +183,12 @@ private:
   
   uint32_t prg_memory_size;
   uint32_t loaded_prg_size;
+  uint32_t  data_memory_size;
+  
   uint8_t*  prg_memory;
+  uint8_t*  data_memory; 
+  uint16_t  data_memory_offset;  
+          
   ARM_REG_STRUCT regs;
   ARM_SPEC_REG_STRUCT spec_regs;
   uint32_t DISASM_ADDR;
@@ -197,6 +221,14 @@ private:
   void  BICRmRd(uint16_t data);    
   void  MVNRdRm(uint16_t data);  
   
+  void  MOVSRdRm(uint16_t data);
+  void  MOVRsImm(uint16_t data);
+  void  ASRSRdRmImm(uint16_t data);
+  void  STRHRtRnImm(uint16_t data);
+  void  STRBRtRnImm(uint16_t data);
+  void  LDRHRtRnImm(uint16_t data);
+  void  LDRBRtRnImm(uint16_t data);
+  
   void  CBZ(uint16_t data);
   void  CBNZ(uint16_t data);
   
@@ -206,7 +238,15 @@ private:
   void SetNFlag(uint32_t data);
   void SetVFlag(uint32_t data);
   
+  void  MOVWRdimm16(P_ARM_PRG_STRUCT pdata);
+  void  MOVTRdimm16(P_ARM_PRG_STRUCT pdata);
+  
   uint8_t CalcShift(uint16_t data);
+  
+  bool IsDataBound(uint32_t address);
+  ARM_PRG_STRUCT Calcdimm16(ARM_PRG_STRUCT pdata);
+  int Get5bitOffset(uint16_t data);
+  int Get5bitShift(uint16_t data);
   
 };
 
