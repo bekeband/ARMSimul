@@ -12,7 +12,7 @@
 
 using namespace std;
 
-#define BEGIN_ADDR 0x0F4
+#define BEGIN_ADDR 0x0136
 
 uint32_t PC_ADDR = BEGIN_ADDR;
 
@@ -28,13 +28,13 @@ int main(int argc, char** argv) {
   ARMClass ARM = ARMClass();
   cout << "Hello World!" << endl;
   ARM.GetBinFile("firmware.bin");
-  ARM.PrintPrgMemory(0x0F4, 0x100);
+//  ARM.PrintPrgMemory(0x0F4, 0x100);
   ARM.SetDisasmAddr(BEGIN_ADDR);
   ARM.SetPC(PC_ADDR);
   ARM.WriteSimulateMode(true);
-  for (int i = 0; i < 20; i++)
+  for (int i = 0; i < 30; i++)
   {
-    codesize = ARM.PrintMnem();
+    codesize = ARM.Simulate();
     ARM.AddDisasmAddr(codesize);
     PC_ADDR += codesize;
     ARM.SetPC(PC_ADDR);
